@@ -1,0 +1,14 @@
+build
+build/*
+
+logs
+logs/*
+
+pcaps
+pcaps/*
+
+utils/_pycache_
+utils/_pycache_/*
+
+utils/p4runtime_lib
+utils/p4runtime_lib/*
