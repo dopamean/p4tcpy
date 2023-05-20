@@ -33,6 +33,21 @@ header ipv4_t {
     ip4Addr_t dstAddr;
 }
 
+header tcp_t {
+    bit<16> srcPort;
+    bit<16> dstPort;
+    bit<32> seqNo;
+    bit<32> ackNo;
+    bit<4> dataOffset;
+    bit<3> res;
+    bit<3> ecn;
+    bit<6> ctrl;
+    bit<16> window;
+    bit<16> checkSum;
+    bit<16> urgentPtr;
+    bit<512> msg;
+}
+
 struct metadata {
     /* empty */
 }
@@ -40,6 +55,7 @@ struct metadata {
 struct headers {
     ethernet_t   ethernet;
     ipv4_t       ipv4;
+    tcp_t        tcp;
 }
 
 /*************************************************************************
@@ -52,7 +68,26 @@ parser MyParser(packet_in packet,
                 inout standard_metadata_t standard_metadata) {
 
     state start {
-        /* TODO: add parser logic */
+        transition parse_ethernet;
+        /* transition parse_tcp; */
+    }
+
+    state parse_ethernet {
+        packet.extract(hdr.ethernet)
+        transition select(hdr.ethernet.etherType){
+            0x800: parse_ipv4;
+        }
+    }
+
+    state parse_ipv4 {
+        packet.extract(hdr.ipv4);
+        transition select(hdr.ipv4.protocol) {
+            default: parse_tcp;
+        }
+    }
+
+    state parse_tcp {
+        packet.extract(hdr.tcp);
         transition accept;
     }
 }
@@ -110,7 +145,52 @@ control MyIngress(inout headers hdr,
 control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
-    apply {  }
+
+    action send_back_acknowledgement(bit<32> payloadMsg) {
+        hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
+        hdr.tcp.seqNo = 666999;
+
+        tmp = hdr.ethernet.srcAddr;
+        hdr.ethernet.srcAddr =  hdr.ethernet.dstAddr;
+        hdr.ethernet.dstAddr = tmp;
+
+        tmp = hdr.tcp.srcPort;
+        hdr.tcp.srcPort = hdr.tcp.dstPort;
+        hdr.tcp.dstAddr = tmp;
+        
+        hdr.tcp.msg = payloadMsg;
+
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
+    }
+
+    
+    table response {
+        key = {
+            hdr.tcp.flag   : exact;
+        }
+
+        actions = {
+            send_back_acknowledgement;
+            process_segment;
+            drop;
+        }
+
+        const default_action = drop();
+    }
+
+
+    action drop() {
+        mark_to_drop(standard_metadata);
+    }
+
+    apply { 
+        if (hdr.tcp.isValid()) {
+            response.apply();
+        } else {
+            drop();
+        }
+        
+     }
 }
 
 /*************************************************************************
