@@ -11,6 +11,7 @@ const bit<16> TYPE_IPV4 = 0x800;
 typedef bit<9>  egressSpec_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
+typedef bit<16> tcpPort_t;
 
 header ethernet_t {
     macAddr_t dstAddr;
@@ -34,18 +35,19 @@ header ipv4_t {
 }
 
 header tcp_t {
-    bit<16> srcPort;
-    bit<16> dstPort;
+    tcpPort_t srcPort;
+    tcpPort_t dstPort;
     bit<32> seqNo;
     bit<32> ackNo;
     bit<4> dataOffset;
+    bit<6> flags;
     bit<3> res;
     bit<3> ecn;
     bit<6> ctrl;
     bit<16> window;
     bit<16> checkSum;
     bit<16> urgentPtr;
-    bit<512> msg;
+    bit<50> msg;
 }
 
 struct metadata {
@@ -58,6 +60,15 @@ struct headers {
     tcp_t        tcp;
 }
 
+
+enum bit<6> flag {
+    FIN = 0x0001,
+    SYN = 0x0002,
+    RST = 0x0004,
+    PSH = 0x0008,
+    ACK = 0x0010,
+    URG = 0x0020
+}
 /*************************************************************************
 *********************** P A R S E R  ***********************************
 *************************************************************************/
@@ -113,8 +124,12 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
+
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
-        /* TODO: fill out code in action body */
+        standard_metadata.egress_spec = port;
+        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+        hdr.ethernet.dstAddr = dstAddr;
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
     table ipv4_lpm {
@@ -122,7 +137,6 @@ control MyIngress(inout headers hdr,
             hdr.ipv4.dstAddr: lpm;
         }
         actions = {
-            ipv4_forward;
             drop;
             NoAction;
         }
@@ -146,7 +160,7 @@ control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
 
-    action send_back_acknowledgement(bit<512> payloadMsg) {
+    action send_back_acknowledgement(bit<50> payloadMsg) {
         hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
         hdr.tcp.seqNo = 666999;
         bit<48> tmp;
@@ -171,7 +185,7 @@ control MyEgress(inout headers hdr,
 
     table response {
         key = {
-            hdr.tcp.flag   : exact;
+            hdr.tcp.flags   : exact;
         }
 
         actions = {
