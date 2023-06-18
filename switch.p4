@@ -73,7 +73,7 @@ parser MyParser(packet_in packet,
     }
 
     state parse_ethernet {
-        packet.extract(hdr.ethernet)
+        packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType){
             0x800: parse_ipv4;
         }
@@ -97,7 +97,7 @@ parser MyParser(packet_in packet,
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
 *************************************************************************/
 
-control MyVerifyChecksum(inout headers hdr, inout metadata meta) {   
+control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
     apply {  }
 }
 
@@ -112,11 +112,11 @@ control MyIngress(inout headers hdr,
     action drop() {
         mark_to_drop(standard_metadata);
     }
-    
+
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
         /* TODO: fill out code in action body */
     }
-    
+
     table ipv4_lpm {
         key = {
             hdr.ipv4.dstAddr: lpm;
@@ -129,7 +129,7 @@ control MyIngress(inout headers hdr,
         size = 1024;
         default_action = NoAction();
     }
-    
+
     apply {
         /* TODO: fix ingress control logic
          *  - ipv4_lpm should be applied only when IPv4 header is valid
@@ -146,24 +146,29 @@ control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
 
-    action send_back_acknowledgement(bit<32> payloadMsg) {
+    action send_back_acknowledgement(bit<512> payloadMsg) {
         hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
         hdr.tcp.seqNo = 666999;
-
+        bit<48> tmp;
         tmp = hdr.ethernet.srcAddr;
         hdr.ethernet.srcAddr =  hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = tmp;
 
-        tmp = hdr.tcp.srcPort;
+
+        bit<16> tmpPort;
+        tmpPort = hdr.tcp.srcPort;
         hdr.tcp.srcPort = hdr.tcp.dstPort;
-        hdr.tcp.dstAddr = tmp;
-        
+        hdr.tcp.dstPort = tmpPort;
+
         hdr.tcp.msg = payloadMsg;
 
         standard_metadata.egress_spec = standard_metadata.ingress_port;
     }
 
-    
+    action drop() {
+        mark_to_drop(standard_metadata);
+    }
+
     table response {
         key = {
             hdr.tcp.flag   : exact;
@@ -171,7 +176,7 @@ control MyEgress(inout headers hdr,
 
         actions = {
             send_back_acknowledgement;
-            process_segment;
+            /* process_segment; */
             drop;
         }
 
@@ -179,17 +184,15 @@ control MyEgress(inout headers hdr,
     }
 
 
-    action drop() {
-        mark_to_drop(standard_metadata);
-    }
 
-    apply { 
+
+    apply {
         if (hdr.tcp.isValid()) {
             response.apply();
         } else {
             drop();
         }
-        
+
      }
 }
 
