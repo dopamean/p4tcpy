@@ -2,12 +2,5 @@
   "target": "bmv2",
   "p4info": "build/switch.p4.p4info.txt",
   "bmv2_json": "build/switch.json",
-  "table_entries": [
-    {
-      "table": "MyIngress.ipv4_lpm",
-      "default_action": true,
-      "action_name": "MyIngress.drop",
-      "action_params": { }
-    }
-  ]
+  "table_entries": []
 }
