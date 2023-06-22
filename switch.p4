@@ -40,14 +40,11 @@ header tcp_t {
     bit<32> seqNo;
     bit<32> ackNo;
     bit<4> dataOffset;
-    bit<6> flags;
-    bit<3> res;
-    bit<3> ecn;
-    bit<6> ctrl;
-    bit<16> window;
+    bit<12> flags;
+    bit<16> windowSize;
     bit<16> checkSum;
     bit<16> urgentPtr;
-    bit<50> msg;
+//    bit<50> options; //We won't be doing options...
 }
 
 struct metadata {
@@ -60,15 +57,18 @@ struct headers {
     tcp_t        tcp;
 }
 
-
-enum bit<6> flag {
-    FIN = 0x0001,
-    SYN = 0x0002,
-    RST = 0x0004,
-    PSH = 0x0008,
-    ACK = 0x0010,
-    URG = 0x0020
+enum bit<12> TCP_flags {
+    FIN = 0x001,
+    SYN = 0x002,
+    RST = 0x004,
+    PSH = 0x008,
+    ACK = 0x010,
+    URG = 0x020,
+    ECN = 0x040,
+    CWR = 0x080,
+    NON = 0x100
 }
+
 /*************************************************************************
 *********************** P A R S E R  ***********************************
 *************************************************************************/
@@ -150,7 +150,22 @@ control MyIngress(inout headers hdr,
             hdr.tcp.dstPort = hdr.tcp.srcPort;
             hdr.tcp.srcPort = TCP_dest_port;
 
-            //TODO: SEQ number, ack number, flags
+            bit<32> last_seq_num = hdr.tcp.seqNo;
+            //TODO: Seq number
+            //hdr.tcp.seqNo = hdr.tcp.seqNo + 1;
+
+
+            //TODO: more flags
+
+            // SYN > SYN,ACK
+            if (hdr.tcp.flags == TCP_flags.SYN) {
+                hdr.tcp.flags = TCP_flags.SYN ^ TCP_flags.ACK;
+            }
+
+            // Set ack number if ACK was set.
+            if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
+                hdr.tcp.ackNo = last_seq_num + 1;
+            }
 
         }
         else {
@@ -181,7 +196,7 @@ control MyEgress(inout headers hdr,
         hdr.tcp.srcPort = hdr.tcp.dstPort;
         hdr.tcp.dstPort = tmpPort;
 
-        hdr.tcp.msg = payloadMsg;
+        //hdr.tcp.msg = payloadMsg;
 
         standard_metadata.egress_spec = standard_metadata.ingress_port;
     }
