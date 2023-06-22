@@ -7,8 +7,8 @@ logs/*
 pcaps
 pcaps/*
 
-utils/_pycache_
-utils/_pycache_/*
+utils/__pycache__
+utils/__pycache__/*
 
-utils/p4runtime_lib
-utils/p4runtime_lib/*
+utils/p4runtime_lib/__pycache__/
+utils/p4runtime_lib/__pycache__/*
