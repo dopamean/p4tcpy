@@ -93,7 +93,7 @@ parser MyParser(packet_in packet,
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol) {
-            default: parse_tcp;
+            0x06: parse_tcp;
         }
     }
 
