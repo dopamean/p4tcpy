@@ -127,23 +127,35 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    table ipv4_lpm {
-        key = {
-            hdr.ipv4.dstAddr: lpm;
-        }
-        actions = {
-            drop;
-            NoAction;
-        }
-        size = 1024;
-        default_action = NoAction();
-    }
-
     apply {
-        /* TODO: fix ingress control logic
-         *  - ipv4_lpm should be applied only when IPv4 header is valid
-         */
-        ipv4_lpm.apply();
+        if (hdr.tcp.isValid()) {
+            // Return packet on source port.
+            standard_metadata.egress_spec = standard_metadata.ingress_port;
+
+            // Fake ethernet answer.
+            macAddr_t eth_dest;
+            eth_dest = hdr.ethernet.dstAddr;
+            hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
+            hdr.ethernet.srcAddr = eth_dest;
+
+            // Fake IP answer.
+            ip4Addr_t IP_dest;
+            IP_dest = hdr.ipv4.dstAddr;
+            hdr.ipv4.dstAddr = hdr.ipv4.srcAddr;
+            hdr.ipv4.srcAddr = IP_dest;
+
+            // Fake TCP answer.
+            tcpPort_t TCP_dest_port;
+            TCP_dest_port = hdr.tcp.dstPort;
+            hdr.tcp.dstPort = hdr.tcp.srcPort;
+            hdr.tcp.srcPort = TCP_dest_port;
+
+            //TODO: SEQ number, ack number, flags
+
+        }
+        else {
+            drop();
+        }
     }
 }
 
@@ -196,12 +208,13 @@ control MyEgress(inout headers hdr,
 
 
     apply {
+        /*
         if (hdr.tcp.isValid()) {
             response.apply();
         } else {
             drop();
         }
-
+        */
      }
 }
 
