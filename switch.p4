@@ -1,7 +1,7 @@
 /* -*- P4_16 -*- */
 #include <core.p4>
 #include <v1model.p4>
-
+// nincsen type
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
 *************************************************************************/
@@ -37,7 +37,7 @@ header tcp_t {
     tcpPort_t dstPort;
     bit<32> seqNo;
     bit<32> ackNo;
-    bit<4> dataOffset;
+    bit<4> dataOffset;   // 20 byte minimum  max 60byte
     bit<3> reserved;
     bit<3> ecn;
     bit<6> flags;
@@ -55,9 +55,9 @@ header tcp_option_noop_t {
 }
 
 header tcp_option_mss_t {
-    bit<8> kind;
+    bit<8> kind;           // tcp type
     bit<8> option_size;
-    bit<16> segment_size;
+    bit<16> segment_size;  //
 }
 
 header tcp_option_ws_t {
@@ -133,32 +133,35 @@ enum bit<6> TCP_flags {
 *********************** P A R S E R  ***********************************
 *************************************************************************/
 
-parser TCP_options_parser(packet_in packet,
+parser TCP_options_parser(packet_in packet,   //█▓▒░ 6      OPCIONális részek csak
                           in bit<4> tcp_header_data_offset,
                           out tcp_options_t tcp_options,
                           out tcp_option_padding_t tcp_options_padding) {
+        //█▓▒░ teljes 32 bitre kell ki paddingelni az END opció után
+                //   ha üres az option .... akkor nincsen END opciója
 
     // Based on https://github.com/jafingerhut/p4-guide/blob/master/tcp-options-parser/tcp-options-parser.p4
     // and https://en.wikipedia.org/wiki/Transmission_Control_Protocol
 
     bit<7> tcp_header_bytes_left;
 
-    state start {
-        tcp_header_bytes_left = 4 * (bit<7>)(tcp_header_data_offset - 5);
+    state start {    //█▓▒░ 6.1
+        tcp_header_bytes_left = 4 * (bit<7>)(tcp_header_data_offset - 5);// bit 7 re konvertált a példa doksi
+            ////█▓▒░
         transition next_option;
     }
 
-    state next_option {
+    state next_option {   //█▓▒░ 6.2
         transition select(tcp_header_bytes_left){
             0: accept;
-            default: next_option2;
+            default: next_option2;     ////█▓▒░6.3 LOOP
         }
     }
 
     state next_option2 {
-        transition select(packet.lookahead<bit<8>>()) {
-            0: option_end;
-            1: option_noop;
+        transition select(packet.lookahead<bit<8>>()) {  // (KIND= tcp opció típusa) nem parsoljuk fel hanem csak kiolvassuk
+            0: option_end;  // tcp opcionélis adattagokat másmás adatot tartalmaznak és azt kell feldolgozni
+            1: option_noop; // loop
             2: option_mss;
             3: option_ws;
             4: option_SACKOK;
@@ -176,19 +179,19 @@ parser TCP_options_parser(packet_in packet,
 
     state option_end {
         packet.extract(tcp_options.next.end);
-        tcp_header_bytes_left = tcp_header_bytes_left - 1;
-        transition consume_all;
+        tcp_header_bytes_left = tcp_header_bytes_left - 1; //
+        transition consume_all; //    KILÉP a parsebol
     }
 
     state option_noop {
         packet.extract(tcp_options.next.noop);
         tcp_header_bytes_left = tcp_header_bytes_left - 1;
-        transition next_option;
+        transition next_option;    /// LOOP
     }
 
     state option_mss {
         packet.extract(tcp_options.next.mss);
-        tcp_header_bytes_left = tcp_header_bytes_left - 5;
+        tcp_header_bytes_left = tcp_header_bytes_left - 5;  // itt 5 byte méretű az opció
         transition next_option;
     }
 
@@ -219,17 +222,17 @@ parser TCP_options_parser(packet_in packet,
 
 }
 
-parser MyParser(packet_in packet,
+parser MyParser(packet_in packet,                     //█▓▒░  1
                 out headers hdr,
                 inout metadata meta,
                 inout standard_metadata_t standard_metadata) {
 
-    state start {
+    state start {   //█▓▒░2
         transition parse_ethernet;
         // For this thech demo we won't be carig about non-ethernet traffic.
     }
 
-    state parse_ethernet {
+    state parse_ethernet {  //█▓▒░3 ethernet parse
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType){
             0x800: parse_ipv4;
@@ -237,7 +240,7 @@ parser MyParser(packet_in packet,
         }
     }
 
-    state parse_ipv4 {
+    state parse_ipv4 {   //█▓▒░ 4 ip 4 parse
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol) {
             0x06: parse_tcp;
@@ -245,10 +248,11 @@ parser MyParser(packet_in packet,
         }
     }
 
-    state parse_tcp {
-        packet.extract(hdr.tcp);
+    state parse_tcp {   //█▓▒░ 5   // tcp parse
+        packet.extract(hdr.tcp);   ////█▓▒░ teljes tcp-t kiolvassuk
+                ////█▓▒░ tcp data offset = teljes tcp = kötelező + opcionális  (sima size )
         TCP_options_parser.apply(packet, hdr.tcp.dataOffset, hdr.tcp_options, hdr.tcp_padding);
-        transition accept;
+        transition accept;  //█▓▒░ 8
     }
 }
 
@@ -258,7 +262,7 @@ parser MyParser(packet_in packet,
 *************************************************************************/
 
 control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
-    apply {  }
+    apply {  }   //█▓▒░  9 drop if not correct
 }
 
 
@@ -266,7 +270,7 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 **************  I N G R E S S   P R O C E S S I N G   *******************
 *************************************************************************/
 
-control MyIngress(inout headers hdr,
+control MyIngress(inout headers hdr,                      //█▓▒░ 10
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
@@ -274,23 +278,24 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    apply {
+    apply {                          //█▓▒░ 10.1
         if (hdr.tcp.isValid()) {
             // Return packet on source port.
-            standard_metadata.egress_spec = standard_metadata.ingress_port;
+            standard_metadata.egress_spec = standard_metadata.ingress_port;  //█▓▒░ bemenetre kimenet
 
-            meta.packet_length = hdr.ipv4.totalLen - 0x5;
-
+            meta.packet_length = hdr.ipv4.totalLen - 0x5 - 0x30 + 0x13 -0x6; //0x100;
+            meta.packet_length = 0x14; //20 byte  //hdr.ipv4.totalLen - 0x28; // ░ mert 40 bit hosszúságot le kell vonni hogy csak a TCP-t kapjuk meg
+                                                                // █ kell egy new variable ami a tcp_length- nevet kapja ... de amig a meta-t máshol nem hazsnáljuk addig biztonságos
             // Fake ethernet answer.
             hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
-            hdr.ethernet.srcAddr = 0x0C001B00B135;
+            hdr.ethernet.srcAddr = 0x0C001B00B135;        //  égetett kamu szám ezért kell egy ilyen
 
             // Fake IP answer.
             ip4Addr_t IP_dest;
             IP_dest = hdr.ipv4.dstAddr;
             hdr.ipv4.dstAddr = hdr.ipv4.srcAddr;
             hdr.ipv4.srcAddr = IP_dest;
-
+            bit<16> last_total_Len  = hdr.ipv4.totalLen;
             hdr.ipv4.totalLen = hdr.ipv4.minSizeInBytes() + hdr.tcp.minSizeInBytes(); // BC, we're truncating the packet in the egress...
 
             // Fake TCP answer.
@@ -299,11 +304,15 @@ control MyIngress(inout headers hdr,
             hdr.tcp.dstPort = hdr.tcp.srcPort;
             hdr.tcp.srcPort = TCP_dest_port;
             hdr.tcp.dataOffset = 0x5;
-            hdr.tcp.windowSize = 0x0;
+            hdr.tcp.windowSize = 0xA564;
+                // █ 0x0 volt a példa 42340  = 0xA564 // !!!  ellenörizni
 
             bit<32> last_seq_num = hdr.tcp.seqNo;
             //TODO: Seq number
-            hdr.tcp.seqNo = hdr.tcp.seqNo;
+                /*
+                    az aktuális küldő fél egyedi seqNo ... a packet
+                */
+            hdr.tcp.seqNo = 0x8BD3370;  // █ 8BD3370 nagyon egyedi        hdr.tcp.seqNo = hdr.tcp.seqNo;
 
 
             bit<6> new_flags = 0x0;
@@ -311,18 +320,50 @@ control MyIngress(inout headers hdr,
             //TODO: more flags
 
             // SYN > SYN,ACK
-            if (hdr.tcp.flags == TCP_flags.SYN) {
-                new_flags = TCP_flags.SYN ^ TCP_flags.ACK;
+            if (hdr.tcp.flags == TCP_flags.SYN) {      //█▓▒░  is_hand_1
+                new_flags = TCP_flags.SYN ^ TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
+                hdr.tcp.flags = new_flags;
+                // Set ack number if outbound ACK was set.
+                if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
+                    hdr.tcp.ackNo = last_seq_num + 1;
+                }
+            }
+            else if (hdr.tcp.flags ==  0x018)  // TCP_flags.PSH ^ TCP_flags.ACK
+            {      //█▓▒░  sima msg ...
+                new_flags = TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
+                meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
+                hdr.tcp.seqNo = hdr.tcp.ackNo;
+                hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );  //
 
             }
-/*
+            else if (hdr.tcp.flags ==  TCP_flags.FIN || (hdr.tcp.flags ==  TCP_flags.FIN ^ TCP_flags.ACK ) )  // TCP_flags.PSH ^ TCP_flags.ACK
+            {      //█▓▒░  sima msg ...
+                new_flags = TCP_flags.ACK ^ TCP_flags.FIN; // kalap = XOR és az enumban binárisan benne van a két 1 es
+
+                meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
+                //hdr.tcp.seqNo = hdr.tcp.ackNo;
+                //hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );  //
+                hdr.tcp.seqNo = hdr.tcp.ackNo;
+                hdr.tcp.ackNo = hdr.tcp.seqNo+1;  // belső seq
+
+            }
+            else
+            {
+                new_flags = TCP_flags.ACK ^ TCP_flags.FIN ^ TCP_flags.PSH ^ TCP_flags.URG;
+                drop();
+
+                // new_flags = TCP_flags.FIN;
+                //new_flags =
+
+            }
+
             // ACK > Increase sequence number
-            if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
+    /*        if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
                 hdr.tcp.seqNo = hdr.tcp.ackNo;
             }
 */
             // Finished parsing incoming flags..
-            hdr.tcp.flags = new_flags;
+            hdr.tcp.flags = new_flags;  // ez jó
 /*
             // Seat a random sequence number if SYN was set
             if (hdr.tcp.flags & TCP_flags.SYN == TCP_flags.SYN) {
@@ -330,10 +371,7 @@ control MyIngress(inout headers hdr,
                 //hdr.tcp.seqNo = 0x01 + ((bit<32>) hdr.tcp.windowSize); // Much random, such security
             }
 */
-            // Set ack number if outbound ACK was set.
-            if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
-                hdr.tcp.ackNo = last_seq_num + 1;
-            }
+
 
         }
         else {
@@ -351,7 +389,8 @@ control MyEgress(inout headers hdr,
                  inout standard_metadata_t standard_metadata) {
     apply {
         truncate(hdr.ethernet.minSizeInBytes() + hdr.ipv4.minSizeInBytes() + hdr.tcp.minSizeInBytes());
-    }
+    } ////█▓▒░ truncate(szám) ... levágja a packet végéről mindent .. (pay loadot)... ha lenne varbit azaza tcp opciónk akkkor ez többet vágna mint kéne
+
 }
 
 /*************************************************************************
@@ -360,7 +399,7 @@ control MyEgress(inout headers hdr,
 
 control MyComputeChecksum(inout headers hdr, inout metadata meta) {
      apply {
-         update_checksum(
+         update_checksum(          ////█▓▒░   ez csak az ipv 4
              hdr.ipv4.isValid(),
              {
                 hdr.ipv4.version,
@@ -378,15 +417,17 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
             hdr.ipv4.hdrChecksum,
             HashAlgorithm.csum16
         );
-
-        update_checksum_with_payload(
-            hdr.tcp.isValid(),
+// p4 16 beépített függvénye
+        update_checksum(  ///█▓▒░  ez a tcp check sum
+            //update_checksum_with_payload    ugyan az payload nélkül a checksum eltérés
+            hdr.tcp.isValid(),  // fel let parsolva vagy sem
             {
                 hdr.ipv4.srcAddr,
                 hdr.ipv4.dstAddr,
-                8w0,
+                8w0,               //pseudo ip mező reserverd mezője .. 8 darab 0
                 hdr.ipv4.protocol,
-                meta.packet_length,
+                meta.packet_length ,  //// teljes csomag mérete VOLT //TCP length: the length of the TCP header and data
+
                 hdr.tcp.srcPort,
                 hdr.tcp.dstPort,
                 hdr.tcp.seqNo,
@@ -398,10 +439,40 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
                 hdr.tcp.windowSize,
                 hdr.tcp.urgentPtr
             },
-            hdr.tcp.checkSum,
+            hdr.tcp.checkSum,         // melyik mezőbe updatel
             HashAlgorithm.csum16
         );
+        // nem lehetséges hdr.tcp.checkSum = hdr.tcp.checkSum + 35;
 
+/*
+    update_checksum(  ///█▓▒░  ez a tcp check sum
+            //update_checksum_with_payload    ugyan az payload nélkül a checksum eltérés
+            hdr.tcp.isValid(),  // fel let parsolva vagy sem
+            {
+                hdr.ipv4.srcAddr,
+                hdr.ipv4.dstAddr, // AAA sorrend a hibás mert ha ha vfelcserélődik a sorrend akkor mindig ugyan az a eltolás lesz az üzenetekbe
+                meta.packet_length,  ////█▓▒░ teljes csomag mérete
+                hdr.ipv4.protocol,
+                8w0,               //pseudo ip mező reserverd mezője .. 8 darab 0
+
+                hdr.tcp.srcPort,
+                hdr.tcp.dstPort,
+            //    hdr.tcp.dstPort,// erre jól elszáll a check szám
+                hdr.tcp.seqNo,
+                hdr.tcp.ackNo,
+                hdr.tcp.dataOffset,
+                hdr.tcp.reserved,
+
+                hdr.tcp.ecn,
+                hdr.tcp.flags,
+                hdr.tcp.windowSize,
+                // 9w0, nem befojásolja a végeredményt .... 35 eltolás mindig
+                hdr.tcp.urgentPtr
+
+            },
+            hdr.tcp.checkSum,         // melyik mezőbe updateli
+            HashAlgorithm.csum16
+        );*/
     }
 }
 
@@ -423,7 +494,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
 *************************************************************************/
 
 V1Switch(
-MyParser(),
+MyParser(),            //
 MyVerifyChecksum(),
 MyIngress(),
 MyEgress(),
