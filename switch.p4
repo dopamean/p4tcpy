@@ -129,6 +129,15 @@ enum bit<6> TCP_flags {
     //NON = 0x100
 }
 
+
+
+extern Counter {
+    Counter(bit<32> size, CounterType type);
+    void increment(in bit<32> index);
+}
+
+//Counter(32w1024, CounterType.Packets) tcp_stat_counter;
+
 /*************************************************************************
 *********************** P A R S E R  ***********************************
 *************************************************************************/
@@ -154,11 +163,11 @@ parser TCP_options_parser(packet_in packet,   //█▓▒░ 6      OPCIONális 
     state next_option {   //█▓▒░ 6.2
         transition select(tcp_header_bytes_left){
             0: accept;
-            default: next_option2;     ////█▓▒░6.3 LOOP
+            default: process_opt;     ////█▓▒░6.3 LOOP
         }
     }
 
-    state next_option2 {
+    state process_opt {
         transition select(packet.lookahead<bit<8>>()) {  // (KIND= tcp opció típusa) nem parsoljuk fel hanem csak kiolvassuk
             0: option_end;  // tcp opcionélis adattagokat másmás adatot tartalmaznak és azt kell feldolgozni
             1: option_noop; // loop
@@ -274,106 +283,100 @@ control MyIngress(inout headers hdr,                      //█▓▒░ 10
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
+
+    bit<6> new_flags = 0x0;
+    bit<32> last_seq_num = hdr.tcp.seqNo;
+    bit<16> last_total_Len  = hdr.ipv4.totalLen;
+
     action drop() {
         mark_to_drop(standard_metadata);
     }
 
-    apply {                          //█▓▒░ 10.1
+    action send_back() {
+                    standard_metadata.egress_spec = standard_metadata.ingress_port;  //█▓▒░ bemenetre kimenet
+
+                    meta.packet_length = hdr.ipv4.totalLen - 0x5 - 0x30 + 0x13 -0x6; //0x100;
+                    meta.packet_length = 0x14; //20 byte  //hdr.ipv4.totalLen - 0x28; // ░ mert 40 bit hosszúságot le kell vonni hogy csak a TCP-t kapjuk meg
+                                                                        // █ kell egy new variable ami a tcp_length- nevet kapja ... de amig a meta-t máshol nem hazsnáljuk addig biztonságos
+                    // Fake ethernet answer.
+                    hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
+                    hdr.ethernet.srcAddr = 0x0C001B00B135;        //  égetett kamu szám ezért kell egy ilyen
+
+                    // Fake IP answer.
+                    ip4Addr_t IP_dest;
+                    IP_dest = hdr.ipv4.dstAddr;
+                    hdr.ipv4.dstAddr = hdr.ipv4.srcAddr;
+                    hdr.ipv4.srcAddr = IP_dest;
+
+                    hdr.ipv4.totalLen = hdr.ipv4.minSizeInBytes() + hdr.tcp.minSizeInBytes(); // BC, we're truncating the packet in the egress...
+
+                    // Fake TCP answer.
+                    tcpPort_t TCP_dest_port;
+                    TCP_dest_port = hdr.tcp.dstPort;
+                    hdr.tcp.dstPort = hdr.tcp.srcPort;
+                    hdr.tcp.srcPort = TCP_dest_port;
+                    hdr.tcp.dataOffset = 0x5;
+                    hdr.tcp.windowSize = 0xA564;
+                    hdr.tcp.seqNo = 0x8BD3370;
+
+    }
+
+    action handle_conn_request(){
+        new_flags = TCP_flags.SYN ^ TCP_flags.ACK;
+        hdr.tcp.flags = new_flags;
+        // Set ack number if outbound ACK was set.
+        if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
+            hdr.tcp.ackNo = last_seq_num + 1;
+        }
+    }
+
+    action acknowledge_push(){
+        new_flags = TCP_flags.ACK;
+        meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
+        hdr.tcp.seqNo = hdr.tcp.ackNo;
+        hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );
+    }
+
+    action handle_disconnect(){
+        new_flags = TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
+
+        meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
+        hdr.tcp.seqNo = hdr.tcp.ackNo;
+        hdr.tcp.ackNo = last_seq_num + 1;
+    }
+
+    action default_handler() {
+        new_flags = TCP_flags.ACK ^ TCP_flags.FIN ^ TCP_flags.PSH ^ TCP_flags.URG;
+        drop();
+    }
+
+    action set_flags() {
+    hdr.tcp.flags = new_flags;
+    }
+
+    table tcp_action_tbl {
+        key = {
+            hdr.ipv4.dstAddr: lpm;
+            hdr.tcp.flags: exact;
+        }
+        actions = {
+            send_back;
+            handle_conn_request;
+            acknowledge_push;
+            handle_disconnect;
+            set_flags;
+            default_handler;
+            drop;
+        }
+        size = 4096;
+    }
+
+
+
+        apply {                          //█▓▒░ 10.1
         if (hdr.tcp.isValid()) {
-            // Return packet on source port.
-            standard_metadata.egress_spec = standard_metadata.ingress_port;  //█▓▒░ bemenetre kimenet
-
-            meta.packet_length = hdr.ipv4.totalLen - 0x5 - 0x30 + 0x13 -0x6; //0x100;
-            meta.packet_length = 0x14; //20 byte  //hdr.ipv4.totalLen - 0x28; // ░ mert 40 bit hosszúságot le kell vonni hogy csak a TCP-t kapjuk meg
-                                                                // █ kell egy new variable ami a tcp_length- nevet kapja ... de amig a meta-t máshol nem hazsnáljuk addig biztonságos
-            // Fake ethernet answer.
-            hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
-            hdr.ethernet.srcAddr = 0x0C001B00B135;        //  égetett kamu szám ezért kell egy ilyen
-
-            // Fake IP answer.
-            ip4Addr_t IP_dest;
-            IP_dest = hdr.ipv4.dstAddr;
-            hdr.ipv4.dstAddr = hdr.ipv4.srcAddr;
-            hdr.ipv4.srcAddr = IP_dest;
-            bit<16> last_total_Len  = hdr.ipv4.totalLen;
-            hdr.ipv4.totalLen = hdr.ipv4.minSizeInBytes() + hdr.tcp.minSizeInBytes(); // BC, we're truncating the packet in the egress...
-
-            // Fake TCP answer.
-            tcpPort_t TCP_dest_port;
-            TCP_dest_port = hdr.tcp.dstPort;
-            hdr.tcp.dstPort = hdr.tcp.srcPort;
-            hdr.tcp.srcPort = TCP_dest_port;
-            hdr.tcp.dataOffset = 0x5;
-            hdr.tcp.windowSize = 0xA564;
-                // █ 0x0 volt a példa 42340  = 0xA564 // !!!  ellenörizni
-
-            bit<32> last_seq_num = hdr.tcp.seqNo;
-            //TODO: Seq number
-                /*
-                    az aktuális küldő fél egyedi seqNo ... a packet
-                */
-            hdr.tcp.seqNo = 0x8BD3370;  // █ 8BD3370 nagyon egyedi        hdr.tcp.seqNo = hdr.tcp.seqNo;
-
-
-            bit<6> new_flags = 0x0;
-
-            //TODO: more flags
-
-            // SYN > SYN,ACK
-            if (hdr.tcp.flags == TCP_flags.SYN) {      //█▓▒░  is_hand_1
-                new_flags = TCP_flags.SYN ^ TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
-                hdr.tcp.flags = new_flags;
-                // Set ack number if outbound ACK was set.
-                if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
-                    hdr.tcp.ackNo = last_seq_num + 1;
-                }
-            }
-            else if (hdr.tcp.flags ==  0x018)  // TCP_flags.PSH ^ TCP_flags.ACK
-            {      //█▓▒░  sima msg ...
-                new_flags = TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
-                meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
-                hdr.tcp.seqNo = hdr.tcp.ackNo;
-                hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );  //
-
-            }
-            else if (hdr.tcp.flags ==  TCP_flags.FIN || (hdr.tcp.flags ==  TCP_flags.FIN ^ TCP_flags.ACK ) )  // TCP_flags.PSH ^ TCP_flags.ACK
-            {      //█▓▒░  sima msg ...
-                new_flags = TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
-
-                meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
-                //hdr.tcp.seqNo = hdr.tcp.ackNo;
-                //hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );  //
-                //bit<32> tmpSeq = hdr.tcp.seqNo;
-                hdr.tcp.seqNo = hdr.tcp.ackNo;
-                hdr.tcp.ackNo = last_seq_num + 1;  // belső seq
-
-            }
-            else
-            {
-                new_flags = TCP_flags.ACK ^ TCP_flags.FIN ^ TCP_flags.PSH ^ TCP_flags.URG;
-                drop();
-
-                // new_flags = TCP_flags.FIN;
-                //new_flags =
-
-            }
-
-            // ACK > Increase sequence number
-    /*        if (hdr.tcp.flags & TCP_flags.ACK == TCP_flags.ACK) {
-                hdr.tcp.seqNo = hdr.tcp.ackNo;
-            }
-*/
-            // Finished parsing incoming flags..
-            hdr.tcp.flags = new_flags;  // ez jó
-/*
-            // Seat a random sequence number if SYN was set
-            if (hdr.tcp.flags & TCP_flags.SYN == TCP_flags.SYN) {
-                hdr.tcp.seqNo = 0x01; // Much random, such security
-                //hdr.tcp.seqNo = 0x01 + ((bit<32>) hdr.tcp.windowSize); // Much random, such security
-            }
-*/
-
-
+            tcp_action_tbl.apply();
+            //tcp_stat_counter.increment(1);
         }
         else {
             drop();
