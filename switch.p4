@@ -338,13 +338,14 @@ control MyIngress(inout headers hdr,                      //█▓▒░ 10
             }
             else if (hdr.tcp.flags ==  TCP_flags.FIN || (hdr.tcp.flags ==  TCP_flags.FIN ^ TCP_flags.ACK ) )  // TCP_flags.PSH ^ TCP_flags.ACK
             {      //█▓▒░  sima msg ...
-                new_flags = TCP_flags.ACK ^ TCP_flags.FIN; // kalap = XOR és az enumban binárisan benne van a két 1 es
+                new_flags = TCP_flags.ACK; // kalap = XOR és az enumban binárisan benne van a két 1 es
 
                 meta.packet_length = hdr.ipv4.totalLen -  0x14;  //    meta.packet_length =  0xA0;  // 160 bit azaz 20 byte a tcp fejléce + payload De itt ez nincsen
                 //hdr.tcp.seqNo = hdr.tcp.ackNo;
                 //hdr.tcp.ackNo = (bit<32>) ((bit<32>)(last_total_Len- 0x14 -0x14) + (bit<32>)last_seq_num );  //
+                //bit<32> tmpSeq = hdr.tcp.seqNo;
                 hdr.tcp.seqNo = hdr.tcp.ackNo;
-                hdr.tcp.ackNo = hdr.tcp.seqNo+1;  // belső seq
+                hdr.tcp.ackNo = last_seq_num + 1;  // belső seq
 
             }
             else
