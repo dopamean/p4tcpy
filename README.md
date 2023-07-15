@@ -22,6 +22,7 @@ If ethernet type is ipv4, the ipv4 extracted next. The IPv4 header is examined i
 
 Checksum inspection:
 * If the checksum is not correct the answer is terminated.
+
 Processing:
 * First it set the output port, destination ip, and reset flag state.
 * Based on TCP flag it whose the response packet type.
