@@ -41,3 +41,7 @@ Manual to use:
   * Make run 
   * Xterm h1 
     * Python3 send _file_w_heartbeat.py
+
+--------OneNote plan--------------------------------------------------------------------------------------------------
+https://ikelte.sharepoint.com/sites/P4TCPY/_layouts/OneNote.aspx?id=%2Fsites%2FP4TCPY%2FMegosztott%20dokumentumok%2FGeneral%2Ffeladatok&wd=target%28N%C3%A9vtelen%20szakasz.one%7C1AED9152-429F-4599-A206-2783EDCF723D%2F%29
+
